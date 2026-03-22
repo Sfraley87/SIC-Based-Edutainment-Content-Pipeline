@@ -1,0 +1,346 @@
+{
+  "name": "SIC-Based Edutainment Content Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "node-schedule",
+      "name": "Daily Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -800,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-sic",
+              "name": "sic_code",
+              "value": "8021",
+              "type": "string"
+            },
+            {
+              "id": "cfg-industry",
+              "name": "industry_name",
+              "value": "Dentists",
+              "type": "string"
+            },
+            {
+              "id": "cfg-product",
+              "name": "product_brief",
+              "value": "AI-powered automation tools for small business owners — helping them save time, reduce admin, and grow revenue through intelligent workflows.",
+              "type": "string"
+            },
+            {
+              "id": "cfg-blotato-key",
+              "name": "blotato_api_key",
+              "value": "YOUR_BLOTATO_API_KEY",
+              "type": "string"
+            },
+            {
+              "id": "cfg-blotato-account",
+              "name": "blotato_account_id",
+              "value": "YOUR_BLOTATO_ACCOUNT_ID",
+              "type": "string"
+            },
+            {
+              "id": "cfg-platform",
+              "name": "target_platform",
+              "value": "linkedin",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-config",
+      "name": "Campaign Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -608,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.opencorporates.com/v0.4/companies/search?q=&jurisdiction_code=us&sic_codes={{ $json.sic_code }}&per_page=10&format=json",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "node-scrape-businesses",
+      "name": "Scrape Businesses by SIC Code",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -400,
+        304
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "node-build-persona",
+      "name": "Build Audience Persona",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        -208,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.item.json.message?.content ?? $input.item.json.choices?.[0]?.message?.content ?? '{}';\nlet persona;\ntry {\n  persona = JSON.parse(raw);\n} catch(e) {\n  // Fallback persona for dentists\n  persona = {\n    persona_name: 'The Busy Dentist',\n    pain_points: ['Too much admin work', 'Difficulty attracting new patients', 'Managing staff scheduling'],\n    goals: ['Grow patient base', 'Reduce operational overhead', 'Improve work-life balance'],\n    content_tone: 'professional but approachable',\n    key_topics: ['practice management', 'patient experience', 'dental technology', 'business growth', 'work-life balance']\n  };\n}\nreturn { json: { persona, ...($('Campaign Config').item.json) } };"
+      },
+      "id": "node-parse-persona",
+      "name": "Parse Persona JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://www.reddit.com/r/dentistry/hot.json?limit=5",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "node-fetch-trends",
+      "name": "Fetch Trending Topics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        208,
+        304
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "node-generate-content",
+      "name": "Generate Edutainment Content",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        400,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const content = $input.item.json.message?.content ?? $input.item.json.choices?.[0]?.message?.content ?? '';\nreturn {\n  json: {\n    post_text: content.trim(),\n    platform: $('Parse Persona JSON').item.json.target_platform,\n    blotato_api_key: $('Parse Persona JSON').item.json.blotato_api_key,\n    blotato_account_id: $('Parse Persona JSON').item.json.blotato_account_id,\n    generated_at: new Date().toISOString()\n  }\n};"
+      },
+      "id": "node-extract-post",
+      "name": "Extract Post Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://backend.blotato.com/v2/posts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"post\": {\n    \"accountId\": \"{{ $json.blotato_account_id }}\",\n    \"content\": {\n      \"text\": {{ JSON.stringify($json.post_text) }},\n      \"mediaUrls\": [],\n      \"platform\": \"{{ $json.platform }}\"\n    },\n    \"target\": {\n      \"targetType\": \"{{ $json.platform }}\"\n    }\n  },\n  \"useNextFreeSlot\": true\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "node-post-blotato",
+      "name": "Post via Blotato",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        800,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "log-status",
+              "name": "status",
+              "value": "success",
+              "type": "string"
+            },
+            {
+              "id": "log-submission",
+              "name": "postSubmissionId",
+              "value": "={{ $json.postSubmissionId }}",
+              "type": "string"
+            },
+            {
+              "id": "log-time",
+              "name": "completedAt",
+              "value": "={{ $now }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-log-result",
+      "name": "Log Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1008,
+        304
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Daily Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Campaign Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaign Config": {
+      "main": [
+        [
+          {
+            "node": "Scrape Businesses by SIC Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape Businesses by SIC Code": {
+      "main": [
+        [
+          {
+            "node": "Build Audience Persona",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Audience Persona": {
+      "main": [
+        [
+          {
+            "node": "Parse Persona JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Persona JSON": {
+      "main": [
+        [
+          {
+            "node": "Fetch Trending Topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Trending Topics": {
+      "main": [
+        [
+          {
+            "node": "Generate Edutainment Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Edutainment Content": {
+      "main": [
+        [
+          {
+            "node": "Extract Post Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Post Text": {
+      "main": [
+        [
+          {
+            "node": "Post via Blotato",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post via Blotato": {
+      "main": [
+        [
+          {
+            "node": "Log Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "840691df-85b2-4f55-bc47-43d222ad9ead",
+  "meta": {
+    "instanceId": "41b9538f904e6a4c613136f9059a403582c2aac64350ef0da9fc201fc16cf494"
+  },
+  "id": "wNdbItfWy7Yhscs9",
+  "tags": []
+}
